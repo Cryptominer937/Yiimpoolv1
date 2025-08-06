@@ -422,6 +422,125 @@ function get_webserver_status {
     esac
 }
 
+# SSH Key Management Functions for Private Repository Access
+function setup_ssh_key_for_git {
+    local ssh_key_path="/root/.ssh/yiimp_private_key"
+    local ssh_config_path="/root/.ssh/config"
+
+    print_status "Setting up SSH key for private repository access..."
+
+    # Create .ssh directory if it doesn't exist
+    sudo mkdir -p /root/.ssh
+    sudo chmod 700 /root/.ssh
+
+    # Setup SSH key based on configuration
+    if [[ -n "${SSH_PRIVATE_KEY_CONTENT}" ]]; then
+        print_status "Installing SSH private key from provided content..."
+        echo "${SSH_PRIVATE_KEY_CONTENT}" | sudo tee "${ssh_key_path}" >/dev/null
+    elif [[ -n "${SSH_PRIVATE_KEY_PATH}" && -f "${SSH_PRIVATE_KEY_PATH}" ]]; then
+        print_status "Copying SSH private key from ${SSH_PRIVATE_KEY_PATH}..."
+        sudo cp "${SSH_PRIVATE_KEY_PATH}" "${ssh_key_path}"
+    else
+        print_error "No SSH private key provided for private repository access"
+        return 1
+    fi
+
+    # Set proper permissions
+    sudo chmod 600 "${ssh_key_path}"
+    sudo chown root:root "${ssh_key_path}"
+
+    # Configure SSH for GitHub
+    print_status "Configuring SSH for GitHub access..."
+    cat << EOF | sudo tee "${ssh_config_path}" >/dev/null
+# GitHub configuration for YiiMP private repository
+Host github.com
+    HostName github.com
+    User git
+    IdentityFile ${ssh_key_path}
+    IdentitiesOnly yes
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+EOF
+
+    sudo chmod 600 "${ssh_config_path}"
+    sudo chown root:root "${ssh_config_path}"
+
+    print_success "SSH key configured for private repository access"
+    return 0
+}
+
+function test_ssh_git_access {
+    local repo_url="$1"
+
+    print_status "Testing SSH access to private repository..."
+
+    # Extract hostname from repository URL
+    local hostname=$(echo "$repo_url" | sed -n 's/.*@\([^:]*\):.*/\1/p')
+
+    if [[ -z "$hostname" ]]; then
+        print_error "Could not extract hostname from repository URL: $repo_url"
+        return 1
+    fi
+
+    # Test SSH connection
+    if sudo ssh -T -o ConnectTimeout=10 -o StrictHostKeyChecking=no "git@${hostname}" 2>&1 | grep -q "successfully authenticated"; then
+        print_success "SSH access to ${hostname} verified"
+        return 0
+    else
+        print_warning "SSH access test inconclusive - proceeding with clone attempt"
+        return 0
+    fi
+}
+
+function clone_private_repository {
+    local repo_url="$1"
+    local destination="$2"
+    local component_name="${3:-repository}"
+
+    print_status "Cloning private ${component_name} repository..."
+
+    # Setup SSH key if using private repository
+    if [[ "${USE_PRIVATE_WEB_REPO}" == "yes" ]]; then
+        if ! setup_ssh_key_for_git; then
+            print_error "Failed to setup SSH key for private repository"
+            return 1
+        fi
+
+        # Test SSH access
+        test_ssh_git_access "$repo_url"
+    fi
+
+    # Remove existing directory if it exists
+    if [[ -d "$destination" ]]; then
+        print_status "Removing existing ${component_name} directory..."
+        sudo rm -rf "$destination"
+    fi
+
+    # Clone the repository
+    print_status "Cloning ${component_name} from ${repo_url}..."
+    if sudo git clone "$repo_url" "$destination"; then
+        print_success "${component_name} repository cloned successfully"
+        return 0
+    else
+        print_error "Failed to clone ${component_name} repository from ${repo_url}"
+        print_info "Please check:"
+        print_info "1. Repository URL is correct"
+        print_info "2. SSH key has access to the repository"
+        print_info "3. Network connectivity to GitHub"
+        return 1
+    fi
+}
+
+function cleanup_ssh_key {
+    local ssh_key_path="/root/.ssh/yiimp_private_key"
+
+    if [[ -f "$ssh_key_path" ]]; then
+        print_status "Cleaning up temporary SSH key..."
+        sudo rm -f "$ssh_key_path"
+        print_success "SSH key cleanup completed"
+    fi
+}
+
 ## Dialog Functions ##
 function message_box {
 	dialog --title "$1" --msgbox "$2" 0 0

@@ -20,6 +20,12 @@ SKIP_MYSQL_INSTALL=${SKIP_MYSQL_INSTALL:-"false"}
 PHP_VERSION=${PHP_VERSION:-"8.1"}
 DEDICATED_DB_SERVER_IP=${DEDICATED_DB_SERVER_IP:-"localhost"}
 
+# Private repository configuration
+USE_PRIVATE_WEB_REPO=${USE_PRIVATE_WEB_REPO:-"no"}
+PRIVATE_WEB_REPO_URL=${PRIVATE_WEB_REPO_URL:-""}
+SSH_PRIVATE_KEY_PATH=${SSH_PRIVATE_KEY_PATH:-""}
+SSH_PRIVATE_KEY_CONTENT=${SSH_PRIVATE_KEY_CONTENT:-""}
+
 set -eu -o pipefail
 
 function print_error {
@@ -254,8 +260,71 @@ else
 fi
 
 print_header "Cloning YiiMP Repository"
-hide_output sudo git clone ${YiiMPRepo} $STORAGE_ROOT/yiimp/yiimp_setup/yiimp
-print_success "YiiMP repository cloned successfully"
+
+if [[ "${USE_PRIVATE_WEB_REPO}" == "yes" ]]; then
+    # Verify this is a multi-server setup
+    if [[ "$wireguard" != "true" ]]; then
+        print_warning "Private repository is only supported for multi-server setups"
+        print_info "Falling back to public repository for single-server installation"
+        USE_PRIVATE_WEB_REPO="no"
+    else
+        print_info "Using dual repository setup for multi-server installation:"
+        print_info "- Private repository for web component: ${PRIVATE_WEB_REPO_URL}"
+        print_info "- Public repository for stratum/database: ${YiiMPRepo}"
+
+        # Clone private repository for web component
+        if ! clone_private_repository "${PRIVATE_WEB_REPO_URL}" "$STORAGE_ROOT/yiimp/yiimp_setup/yiimp_private" "private web"; then
+            print_error "Failed to clone private web repository"
+            exit 1
+        fi
+    fi
+fi
+
+if [[ "${USE_PRIVATE_WEB_REPO}" == "yes" && "$wireguard" == "true" ]]; then
+
+    # Clone public repository for stratum and other components
+    print_status "Cloning public repository for stratum/database components..."
+    if ! hide_output sudo git clone ${YiiMPRepo} $STORAGE_ROOT/yiimp/yiimp_setup/yiimp_public; then
+        print_error "Failed to clone public YiiMP repository"
+        exit 1
+    fi
+
+    # Create combined directory structure
+    print_status "Creating combined YiiMP directory structure..."
+    sudo mkdir -p $STORAGE_ROOT/yiimp/yiimp_setup/yiimp
+
+    # Copy stratum and other components from public repo
+    sudo cp -r $STORAGE_ROOT/yiimp/yiimp_setup/yiimp_public/stratum $STORAGE_ROOT/yiimp/yiimp_setup/yiimp/
+    sudo cp -r $STORAGE_ROOT/yiimp/yiimp_setup/yiimp_public/bin $STORAGE_ROOT/yiimp/yiimp_setup/yiimp/
+    sudo cp -r $STORAGE_ROOT/yiimp/yiimp_setup/yiimp_public/blocknotify $STORAGE_ROOT/yiimp/yiimp_setup/yiimp/
+
+    # Copy any other directories except web from public repo
+    for dir in $STORAGE_ROOT/yiimp/yiimp_setup/yiimp_public/*/; do
+        dirname=$(basename "$dir")
+        if [[ "$dirname" != "web" && "$dirname" != "stratum" && "$dirname" != "bin" && "$dirname" != "blocknotify" ]]; then
+            sudo cp -r "$dir" $STORAGE_ROOT/yiimp/yiimp_setup/yiimp/
+        fi
+    done
+
+    # Copy web component from private repo
+    sudo cp -r $STORAGE_ROOT/yiimp/yiimp_setup/yiimp_private/web $STORAGE_ROOT/yiimp/yiimp_setup/yiimp/
+
+    # Copy any additional files from private repo root
+    sudo find $STORAGE_ROOT/yiimp/yiimp_setup/yiimp_private/ -maxdepth 1 -type f -exec cp {} $STORAGE_ROOT/yiimp/yiimp_setup/yiimp/ \;
+
+    print_success "Combined YiiMP repository structure created successfully"
+    print_info "Web component from: ${PRIVATE_WEB_REPO_URL}"
+    print_info "Other components from: ${YiiMPRepo}"
+
+else
+    # Standard single repository clone
+    print_status "Using standard public repository: ${YiiMPRepo}"
+    if ! hide_output sudo git clone ${YiiMPRepo} $STORAGE_ROOT/yiimp/yiimp_setup/yiimp; then
+        print_error "Failed to clone YiiMP repository"
+        exit 1
+    fi
+    print_success "YiiMP repository cloned successfully"
+fi
 
 # Restart web server only if we installed it
 if [[ "${SKIP_WEB_SERVER_INSTALL}" != "true" ]]; then

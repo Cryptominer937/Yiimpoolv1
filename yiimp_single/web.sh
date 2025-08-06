@@ -18,6 +18,12 @@ SKIP_WEB_SERVER_INSTALL=${SKIP_WEB_SERVER_INSTALL:-"false"}
 AAPANEL_SITE_ROOT=${AAPANEL_SITE_ROOT:-"/var/www/${DomainName}/html"}
 PHP_VERSION=${PHP_VERSION:-"8.1"}
 
+# Private repository configuration
+USE_PRIVATE_WEB_REPO=${USE_PRIVATE_WEB_REPO:-"no"}
+PRIVATE_WEB_REPO_URL=${PRIVATE_WEB_REPO_URL:-""}
+SSH_PRIVATE_KEY_PATH=${SSH_PRIVATE_KEY_PATH:-""}
+SSH_PRIVATE_KEY_CONTENT=${SSH_PRIVATE_KEY_CONTENT:-""}
+
 set -eu -o pipefail
 
 function print_error {
@@ -87,6 +93,15 @@ print_header "Web Server Configuration"
 
 if [[ "${SKIP_WEB_SERVER_INSTALL}" == "true" ]]; then
     print_info "Skipping web server configuration - using existing ${WEB_SERVER_TYPE}"
+
+    if [[ "${USE_AAPANEL}" == "yes" ]]; then
+        print_info "aaPanel detected - SSL certificates should be managed through aaPanel interface"
+        print_info "To configure SSL in aaPanel:"
+        print_info "1. Go to Website > SSL"
+        print_info "2. Select your domain"
+        print_info "3. Choose Let's Encrypt or upload your certificates"
+        print_info "4. Enable Force HTTPS if desired"
+    fi
 
     # Configure based on web server type
     case "${WEB_SERVER_TYPE}" in
@@ -250,9 +265,16 @@ if [[ "${USE_AAPANEL}" == "yes" ]]; then
     print_info "Web Server: ${WEB_SERVER_TYPE} (via aaPanel)"
     print_info "Web Root: ${AAPANEL_SITE_ROOT}"
     print_info "PHP Version: ${PHP_VERSION}"
+    print_info "SSL Management: aaPanel Interface"
+    print_warning "Remember to configure SSL certificate in aaPanel!"
 else
     print_info "Web Server: nginx (standard installation)"
     print_info "Web Root: /var/www/${DomainName}/html"
+    if [[ "${InstallSSL,,}" == "yes" ]]; then
+        print_info "SSL: Configured via Let's Encrypt"
+    else
+        print_info "SSL: Not configured"
+    fi
 fi
 print_info "YiiMP Root: ${STORAGE_ROOT}/yiimp/site"
 print_info "Configuration: /etc/yiimp"

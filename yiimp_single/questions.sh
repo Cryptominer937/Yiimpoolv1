@@ -26,6 +26,12 @@ AAPANEL_SITE_ROOT=""
 PHP_VERSION="8.1"
 DEDICATED_DB_SERVER_IP=""
 
+# Private Repository Configuration Variables
+USE_PRIVATE_WEB_REPO="false"
+PRIVATE_WEB_REPO_URL=""
+SSH_PRIVATE_KEY_PATH=""
+SSH_PRIVATE_KEY_CONTENT=""
+
 # Display installation type based on wireguard setting
 if [[ ("$wireguard" == "true") ]]; then
     message_box "Yiimpool Yiimp installer" \
@@ -171,9 +177,44 @@ if [[ "$USE_AAPANEL" == "yes" ]]; then
         fi
     fi
 
-    # Skip installations
+    # Skip all installations managed by aaPanel
     SKIP_WEB_SERVER_INSTALL="true"
     SKIP_PHP_INSTALL="true"
+
+    # SSL will be managed by aaPanel
+    InstallSSL="no"
+    print_info "SSL certificates will be managed through aaPanel interface"
+
+    # Important warnings for aaPanel + OpenLiteSpeed users
+    if [[ "$WEB_SERVER_TYPE" == "openlitespeed" ]]; then
+        print_warning "IMPORTANT: OpenLiteSpeed PHP Compatibility Notes:"
+        print_warning "1. OpenLiteSpeed only supports PHP 8.1+ on Ubuntu/Debian"
+        print_warning "2. LSPHP has 'memcached' but NOT 'memcache' extension"
+        print_warning "3. LSPHP's memcached is NOT backwards compatible with memcache"
+        print_warning "4. You may need to install memcache manually or modify YiiMP code"
+        print_info ""
+        print_info "To install memcache extension for LSPHP:"
+        print_info "1. SSH into your server"
+        print_info "2. Run: /usr/local/lsws/lsphp${PHP_VERSION//.}/bin/pecl install memcache"
+        print_info "3. Add 'extension=memcache.so' to php.ini via aaPanel"
+        print_info "4. Restart OpenLiteSpeed"
+        print_info ""
+
+        # Confirm user understands the limitations
+        dialog --title "OpenLiteSpeed Compatibility Warning" \
+        --yesno "Do you understand the OpenLiteSpeed PHP limitations?\n\n• Only PHP 8.1+ supported\n• Memcache extension needs manual installation\n• May require YiiMP code modifications\n\nContinue with OpenLiteSpeed setup?" 12 70
+        response=$?
+        case $response in
+           1)
+               print_error "OpenLiteSpeed setup cancelled by user"
+               exit 1
+               ;;
+           255)
+               print_error "Setup cancelled"
+               exit 1
+               ;;
+        esac
+    fi
 
     # Ask about MySQL installation
     dialog --title "MySQL Installation" \
@@ -206,6 +247,76 @@ else
     SKIP_WEB_SERVER_INSTALL="false"
     SKIP_PHP_INSTALL="false"
     SKIP_MYSQL_INSTALL="false"
+fi
+
+# Private Repository Configuration Questions (only for multi-server setups)
+if [[ "$wireguard" == "true" ]]; then
+    dialog --title "YiiMP Web Repository (Multi-Server)" \
+    --yesno "Do you want to use a private repository for the YiiMP web component?\n\nThis custom repository is designed for multi-server setups and includes\nmodifications specific to distributed mining pool architecture.\n\nStratum and database components will still use the public repository.\n\nSelect 'Yes' to configure private repository access.\nSelect 'No' to use the standard public repository." 14 70
+    response=$?
+    case $response in
+       0) USE_PRIVATE_WEB_REPO=yes;;
+       1) USE_PRIVATE_WEB_REPO=no;;
+       255) echo "[ESC] key pressed.";;
+    esac
+else
+    # Single-server setup - always use public repository
+    USE_PRIVATE_WEB_REPO=no
+    print_info "Single-server setup detected - using standard public repository"
+fi
+
+if [[ "$USE_PRIVATE_WEB_REPO" == "yes" ]]; then
+    # Private Repository URL
+    if [ -z "${PRIVATE_WEB_REPO_URL:-}" ]; then
+        DEFAULT_PRIVATE_REPO="git@github.com:Cryptominer937/yiimp2.git"
+        input_box "Private Repository URL" \
+        "Enter the SSH URL for your private YiiMP repository.\n\nExample: git@github.com:username/repository.git\n\nRepository URL:" \
+        "${DEFAULT_PRIVATE_REPO}" \
+        PRIVATE_WEB_REPO_URL
+
+        if [ -z "${PRIVATE_WEB_REPO_URL}" ]; then
+            PRIVATE_WEB_REPO_URL="${DEFAULT_PRIVATE_REPO}"
+        fi
+    fi
+
+    # SSH Private Key Configuration
+    dialog --title "SSH Private Key Setup" \
+    --yesno "How would you like to provide your SSH private key?\n\nSelect 'Yes' to paste the key content directly.\nSelect 'No' to specify a file path to an existing key." 10 70
+    response=$?
+    case $response in
+       0)
+           # Paste key content
+           SSH_PRIVATE_KEY_CONTENT=$(dialog --stdout --title "SSH Private Key" --inputbox "Paste your SSH private key content here:\n\n(This will be securely stored and used for repository access)" 20 80)
+           if [ -z "${SSH_PRIVATE_KEY_CONTENT}" ]; then
+               print_error "SSH private key content is required for private repository access"
+               exit 1
+           fi
+           ;;
+       1)
+           # File path
+           if [ -z "${SSH_PRIVATE_KEY_PATH:-}" ]; then
+               DEFAULT_KEY_PATH="$HOME/.ssh/id_rsa"
+               input_box "SSH Private Key Path" \
+               "Enter the full path to your SSH private key file.\n\nExample: /home/user/.ssh/id_rsa\n\nKey Path:" \
+               "${DEFAULT_KEY_PATH}" \
+               SSH_PRIVATE_KEY_PATH
+
+               if [ -z "${SSH_PRIVATE_KEY_PATH}" ]; then
+                   SSH_PRIVATE_KEY_PATH="${DEFAULT_KEY_PATH}"
+               fi
+
+               # Verify key file exists
+               if [ ! -f "${SSH_PRIVATE_KEY_PATH}" ]; then
+                   print_error "SSH private key file not found: ${SSH_PRIVATE_KEY_PATH}"
+                   exit 1
+               fi
+           fi
+           ;;
+       255) echo "[ESC] key pressed.";;
+    esac
+else
+    # Standard installation - use public repository
+    USE_PRIVATE_WEB_REPO="no"
 fi
 
 # Further prompts for support email, admin panel location, auto-exchange, dedicated coin ports, and public IP
@@ -414,6 +525,10 @@ case $response in
                   AAPANEL_SITE_ROOT='${AAPANEL_SITE_ROOT}'
                   PHP_VERSION='${PHP_VERSION}'
                   DEDICATED_DB_SERVER_IP='${DEDICATED_DB_SERVER_IP}'
+                  USE_PRIVATE_WEB_REPO='${USE_PRIVATE_WEB_REPO}'
+                  PRIVATE_WEB_REPO_URL='${PRIVATE_WEB_REPO_URL}'
+                  SSH_PRIVATE_KEY_PATH='${SSH_PRIVATE_KEY_PATH}'
+                  SSH_PRIVATE_KEY_CONTENT='${SSH_PRIVATE_KEY_CONTENT}'
                   YiiMPRepo='https://github.com/Kudaraidee/yiimp.git'" | sudo -E tee "$STORAGE_ROOT/yiimp/.yiimp.conf" >/dev/null 2>&1
         else
             echo "STORAGE_USER=${STORAGE_USER}
@@ -446,6 +561,10 @@ case $response in
                   AAPANEL_SITE_ROOT='${AAPANEL_SITE_ROOT}'
                   PHP_VERSION='${PHP_VERSION}'
                   DEDICATED_DB_SERVER_IP='${DEDICATED_DB_SERVER_IP}'
+                  USE_PRIVATE_WEB_REPO='${USE_PRIVATE_WEB_REPO}'
+                  PRIVATE_WEB_REPO_URL='${PRIVATE_WEB_REPO_URL}'
+                  SSH_PRIVATE_KEY_PATH='${SSH_PRIVATE_KEY_PATH}'
+                  SSH_PRIVATE_KEY_CONTENT='${SSH_PRIVATE_KEY_CONTENT}'
                   YiiMPRepo='https://github.com/Kudaraidee/yiimp.git'" | sudo -E tee "$STORAGE_ROOT/yiimp/.yiimp.conf" >/dev/null 2>&1
         fi
         ;;

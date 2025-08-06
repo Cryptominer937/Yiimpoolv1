@@ -23,6 +23,10 @@ fi
 # Set default PHP version if not defined
 PHP_VERSION=${PHP_VERSION:-"8.1"}
 
+# Private repository configuration (stratum uses public repo only)
+USE_PRIVATE_WEB_REPO=${USE_PRIVATE_WEB_REPO:-"no"}
+print_info "Stratum server will use public repository: ${YiiMPRepo}"
+
 # source $HOME/Yiimpoolv1/yiimp_single/.wireguard.install.cnf
 
 set -eu -o pipefail

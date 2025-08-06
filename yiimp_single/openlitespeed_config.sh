@@ -215,10 +215,22 @@ print_success "OpenLiteSpeed configuration completed successfully"
 
 print_divider
 print_info "Next steps:"
-print_info "1. Verify your site is accessible at https://${DomainName}"
-print_info "2. Check OpenLiteSpeed admin panel for any configuration issues"
-print_info "3. Monitor OpenLiteSpeed error logs if needed"
-print_info "4. Continue with YiiMP installation"
+print_info "1. Configure SSL certificate in aaPanel:"
+print_info "   - Go to Website > SSL in aaPanel"
+print_info "   - Select your domain: ${DomainName}"
+print_info "   - Choose Let's Encrypt for free SSL or upload your certificate"
+print_info "   - Enable 'Force HTTPS' for security"
+print_info "2. Verify your site is accessible at https://${DomainName}"
+print_info "3. Check OpenLiteSpeed admin panel for any configuration issues"
+print_info "4. Monitor OpenLiteSpeed error logs if needed"
+print_info "5. Continue with YiiMP installation"
+
+print_header "aaPanel SSL Configuration Guide"
+print_info "aaPanel provides easy SSL management:"
+print_info "• Automatic Let's Encrypt certificate renewal"
+print_info "• Support for custom SSL certificates"
+print_info "• One-click HTTPS enforcement"
+print_info "• SSL certificate monitoring and alerts"
 
 set +eu +o pipefail
 cd $HOME/Yiimpoolv1/yiimp_single
