@@ -72,12 +72,13 @@ elif [[ "$DISTRO" == "12" ]]; then
     print_success "CertBot installation complete"
 fi
 
-print_header "Installing MariaDB"
+if [[ "${SKIP_MYSQL_INSTALL}" != "true" ]]; then
+    print_header "Installing MariaDB"
 
-# Create directory for keys if it doesn't exist
-if [ ! -d /etc/apt/keyrings ]; then
-    sudo mkdir -p /etc/apt/keyrings
-fi
+    # Create directory for keys if it doesn't exist
+    if [ ! -d /etc/apt/keyrings ]; then
+        sudo mkdir -p /etc/apt/keyrings
+    fi
 
 # Download and add the MariaDB signing key
 if [ ! -f /etc/apt/keyrings/mariadb.gpg ]; then
@@ -126,14 +127,40 @@ else
     hide_output sudo apt-get upgrade -y
 fi
 
-hide_output sudo apt-get dist-upgrade -y
-hide_output sudo apt-get autoremove -y
+    hide_output sudo apt-get dist-upgrade -y
+    hide_output sudo apt-get autoremove -y
+    print_success "MariaDB installation complete"
+else
+    print_info "Skipping MariaDB installation - using existing database server"
+    if [[ "${USE_AAPANEL}" == "yes" ]]; then
+        if [[ "$wireguard" == "true" ]]; then
+            print_info "Multi-server setup: Using dedicated database server"
+            print_info "Database server will be configured separately"
+        else
+            print_info "Single-server aaPanel setup: Using aaPanel's MySQL/MariaDB"
+            print_info "Database credentials provided during configuration"
+        fi
+    else
+        print_info "Using dedicated database server configuration"
+    fi
+fi
 
 print_header "Installing Base System Packages"
-apt_install python3 python3-dev python3-pip \
-	wget curl git sudo coreutils bc \
-	haveged pollinate unzip \
-	unattended-upgrades cron ntp fail2ban screen rsyslog lolcat haproxy supervisor
+# Install base system packages
+if [[ "${USE_AAPANEL}" == "yes" ]]; then
+    print_info "aaPanel detected - installing minimal system packages only"
+    apt_install python3 python3-dev python3-pip \
+        wget curl git sudo coreutils bc \
+        haveged pollinate unzip \
+        unattended-upgrades cron ntp fail2ban screen rsyslog lolcat
+    print_info "Skipping haproxy and supervisor - aaPanel manages these services"
+else
+    # Standard installation with all packages
+    apt_install python3 python3-dev python3-pip \
+        wget curl git sudo coreutils bc \
+        haveged pollinate unzip \
+        unattended-upgrades cron ntp fail2ban screen rsyslog lolcat haproxy supervisor
+fi
 
 # Install nginx only if not skipping web server installation
 if [[ "${SKIP_WEB_SERVER_INSTALL}" != "true" ]]; then
@@ -141,6 +168,9 @@ if [[ "${SKIP_WEB_SERVER_INSTALL}" != "true" ]]; then
     apt_install nginx
 else
     print_info "Skipping nginx installation - using existing web server (${WEB_SERVER_TYPE})"
+    if [[ "${USE_AAPANEL}" == "yes" ]]; then
+        print_info "Web server managed by aaPanel"
+    fi
 fi
 
 print_success "Base system packages installed"

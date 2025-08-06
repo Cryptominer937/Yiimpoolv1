@@ -232,5 +232,28 @@ print_info "• Support for custom SSL certificates"
 print_info "• One-click HTTPS enforcement"
 print_info "• SSL certificate monitoring and alerts"
 
+print_header "IMPORTANT: OpenLiteSpeed PHP Memcache Setup"
+print_warning "OpenLiteSpeed PHP (LSPHP) Limitations:"
+print_warning "• Only supports PHP 8.1+ on Ubuntu/Debian"
+print_warning "• Has 'memcached' extension but NOT 'memcache'"
+print_warning "• LSPHP's memcached is NOT backwards compatible with memcache"
+print_warning "• YiiMP requires the 'memcache' extension specifically"
+
+print_info "To install memcache extension for OpenLiteSpeed:"
+print_info "1. SSH into your server as root"
+print_info "2. Install memcache via PECL:"
+print_info "   /usr/local/lsws/lsphp${PHP_VERSION//.}/bin/pecl install memcache"
+print_info "3. Add extension to PHP configuration:"
+print_info "   echo 'extension=memcache.so' >> /usr/local/lsws/lsphp${PHP_VERSION//.}/etc/php/${PHP_VERSION}/litespeed/php.ini"
+print_info "4. Or add via aaPanel: Software Store > PHP > Extensions > Install memcache"
+print_info "5. Restart OpenLiteSpeed: systemctl restart lsws"
+print_info "6. Verify installation: php -m | grep memcache"
+
+print_warning "Alternative: Modify YiiMP to use memcached instead of memcache"
+print_info "If memcache installation fails, you may need to modify YiiMP code:"
+print_info "• Replace 'memcache' calls with 'memcached' in YiiMP source"
+print_info "• Update connection methods and function calls"
+print_info "• Test thoroughly as behavior may differ"
+
 set +eu +o pipefail
 cd $HOME/Yiimpoolv1/yiimp_single

@@ -95,12 +95,71 @@ if [[ "${SKIP_WEB_SERVER_INSTALL}" == "true" ]]; then
     print_info "Skipping web server configuration - using existing ${WEB_SERVER_TYPE}"
 
     if [[ "${USE_AAPANEL}" == "yes" ]]; then
-        print_info "aaPanel detected - SSL certificates should be managed through aaPanel interface"
-        print_info "To configure SSL in aaPanel:"
-        print_info "1. Go to Website > SSL"
-        print_info "2. Select your domain"
-        print_info "3. Choose Let's Encrypt or upload your certificates"
-        print_info "4. Enable Force HTTPS if desired"
+        print_header "aaPanel Configuration Verification Required"
+        print_warning "IMPORTANT: Before continuing, verify these aaPanel configurations:"
+
+        print_info "1. SSL Certificate Configuration:"
+        print_info "   • Go to Website > SSL in aaPanel"
+        print_info "   • Select your domain: ${DomainName}"
+        print_info "   • Configure Let's Encrypt or upload certificates"
+        print_info "   • Enable Force HTTPS if desired"
+        print_info ""
+
+        print_info "2. YiiMP Cron Jobs Setup (CRITICAL):"
+        print_info "   • Go to Cron in aaPanel"
+        print_info "   • Add these 3 cron jobs:"
+        print_info ""
+        print_info "   Main Processing (every minute):"
+        print_info "   * * * * * cd ${AAPANEL_SITE_ROOT} && php runconsole.php cronjob/run"
+        print_info ""
+        print_info "   Loop2 Processing (every minute):"
+        print_info "   * * * * * cd ${AAPANEL_SITE_ROOT} && php runconsole.php cronjob/runLoop2"
+        print_info ""
+        print_info "   Block Processing (every minute):"
+        print_info "   * * * * * cd ${AAPANEL_SITE_ROOT} && php runconsole.php cronjob/runBlocks"
+        print_info ""
+
+        print_info "3. PHP Configuration:"
+        print_info "   • Ensure PHP ${PHP_VERSION} is selected for your site"
+        print_info "   • Verify memcache extension is installed (if using OpenLiteSpeed)"
+        print_info "   • Check PHP error logs if issues occur"
+        print_info ""
+
+        print_info "4. Database Connection:"
+        if [[ "$wireguard" == "true" ]]; then
+            print_info "   • Multi-server: Database connection will be configured automatically"
+        else
+            print_info "   • Single-server: Ensure YiiMP database and user exist in aaPanel"
+            print_info "   • Database: ${YiiMPDBName}"
+            print_info "   • User: ${YiiMPPanelName}"
+        fi
+        print_info ""
+
+        # Confirmation dialog
+        dialog --title "aaPanel Configuration Confirmation" \
+        --yesno "Have you completed the required aaPanel configurations?\n\nRequired:\n✓ SSL certificate configured\n✓ YiiMP cron jobs added (3 jobs)\n✓ PHP ${PHP_VERSION} selected for site\n✓ Database ready (single-server only)\n✓ Memcache extension installed (OpenLiteSpeed)\n\nSelect 'Yes' if all configurations are complete.\nSelect 'No' to exit and complete configurations." 16 80
+        response=$?
+        case $response in
+           0)
+               print_success "aaPanel configurations confirmed - continuing installation"
+               ;;
+           1)
+               print_error "Please complete the required aaPanel configurations:"
+               print_info ""
+               print_info "1. Configure SSL certificate in aaPanel"
+               print_info "2. Add YiiMP cron jobs in aaPanel (see above for exact commands)"
+               print_info "3. Ensure PHP ${PHP_VERSION} is selected"
+               print_info "4. Verify database setup (single-server only)"
+               print_info "5. Install memcache extension (OpenLiteSpeed only)"
+               print_info ""
+               print_info "Re-run this installer after completing these steps."
+               exit 1
+               ;;
+           255)
+               print_error "Installation cancelled"
+               exit 1
+               ;;
+        esac
     fi
 
     # Configure based on web server type
@@ -281,6 +340,23 @@ print_info "Configuration: /etc/yiimp"
 print_info "Backup Directory: ${STORAGE_ROOT}/yiimp/site/backup"
 
 print_divider
+
+# Final aaPanel reminder
+if [[ "${USE_AAPANEL}" == "yes" ]]; then
+    print_header "FINAL REMINDER: aaPanel Cron Jobs"
+    print_warning "Don't forget to verify your YiiMP cron jobs are running in aaPanel!"
+    print_info ""
+    print_info "Check in aaPanel > Cron that these 3 jobs are active:"
+    print_info "1. Main: cd ${AAPANEL_SITE_ROOT} && php runconsole.php cronjob/run"
+    print_info "2. Loop2: cd ${AAPANEL_SITE_ROOT} && php runconsole.php cronjob/runLoop2"
+    print_info "3. Blocks: cd ${AAPANEL_SITE_ROOT} && php runconsole.php cronjob/runBlocks"
+    print_info ""
+    print_info "These cron jobs are ESSENTIAL for mining pool operation!"
+    print_info "Without them, shares won't be processed and payouts won't work."
+    print_divider
+fi
+
+print_success "YiiMP installation completed successfully!"
 
 set +eu +o pipefail
 

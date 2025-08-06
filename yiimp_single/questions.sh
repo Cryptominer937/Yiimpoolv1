@@ -216,15 +216,47 @@ if [[ "$USE_AAPANEL" == "yes" ]]; then
         esac
     fi
 
-    # Ask about MySQL installation
-    dialog --title "MySQL Installation" \
-    --yesno "Do you want to skip MySQL installation?\n\nSelect 'Yes' if you're using aaPanel's MySQL or a dedicated database server.\nSelect 'No' to install MySQL locally." 10 70
-    response=$?
-    case $response in
-       0) SKIP_MYSQL_INSTALL="true";;
-       1) SKIP_MYSQL_INSTALL="false";;
-       255) echo "[ESC] key pressed.";;
-    esac
+    # MySQL installation handling based on server setup type
+    if [[ "$wireguard" == "true" ]]; then
+        # Multi-server setup - dedicated database server handles everything
+        SKIP_MYSQL_INSTALL="true"
+        print_info "Multi-server setup detected - using dedicated database server"
+        print_info "Database installation and configuration will be handled automatically"
+        print_info "No manual database setup required - installer manages everything"
+    else
+        # Single-server setup with aaPanel - user must create databases manually
+        SKIP_MYSQL_INSTALL="true"
+        print_info "Single-server aaPanel setup - using aaPanel's MySQL/MariaDB"
+
+        print_warning "IMPORTANT: Database Setup Required"
+        print_warning "You must manually create the following databases in aaPanel:"
+        print_warning "1. Main YiiMP database (e.g., 'yiimp')"
+        print_warning "2. Database user with full privileges"
+        print_warning "3. Configure database credentials in the installer"
+
+        dialog --title "Database Setup Confirmation" \
+        --yesno "Have you already created the required databases in aaPanel?\n\nYou need:\n• YiiMP database (e.g., 'yiimp')\n• Database user with full privileges\n• Database password\n\nSelect 'Yes' if databases are ready.\nSelect 'No' to exit and create databases first." 14 70
+        response=$?
+        case $response in
+           0)
+               print_info "Proceeding with existing aaPanel databases"
+               ;;
+           1)
+               print_error "Please create the required databases in aaPanel first:"
+               print_info "1. Login to aaPanel"
+               print_info "2. Go to Database > MySQL"
+               print_info "3. Create database (e.g., 'yiimp')"
+               print_info "4. Create database user with full privileges"
+               print_info "5. Note the database name, username, and password"
+               print_info "6. Re-run this installer"
+               exit 1
+               ;;
+           255)
+               print_error "Setup cancelled"
+               exit 1
+               ;;
+        esac
+    fi
 
     # If skipping MySQL, ask for dedicated DB server
     if [[ "$SKIP_MYSQL_INSTALL" == "true" ]]; then
@@ -452,10 +484,53 @@ generate_random_password_phpmyadmin() {
     fi
 }
 
-# Generate database passwords
-generate_random_password_database "${DEFAULT_DBRootPassword}" "DBRootPassword"
-generate_random_password_database "${DEFAULT_PanelUserDBPassword}" "PanelUserDBPassword"
-generate_random_password_database "${DEFAULT_StratumUserDBPassword}" "StratumUserDBPassword"
+# Generate database passwords based on setup type
+if [[ "${USE_AAPANEL}" == "yes" && "$wireguard" != "true" ]]; then
+    # Single-server aaPanel setup - use existing database credentials
+    print_header "aaPanel Database Configuration (Single-Server)"
+    print_info "Single-server setup requires manual database creation in aaPanel"
+    print_info "Please provide the database credentials you created in aaPanel:"
+
+    # Database root password (for aaPanel MySQL root user)
+    input_box "MySQL Root Password" \
+    "Enter the MySQL root password from aaPanel.\n\nThis is typically set during aaPanel installation or in Database > Root Password.\n\nMySQL Root Password:" \
+    "" \
+    "DBRootPassword"
+
+    # YiiMP database name (user-created in aaPanel)
+    input_box "YiiMP Database Name" \
+    "Enter the database name you created in aaPanel for YiiMP.\n\nExample: yiimp, mining_pool, etc.\n\nDatabase Name:" \
+    "yiimp" \
+    "YiiMPDBName"
+
+    # YiiMP database user (user-created in aaPanel)
+    input_box "YiiMP Database User" \
+    "Enter the database username you created in aaPanel.\n\nThis user should have full privileges on the YiiMP database.\n\nDatabase Username:" \
+    "yiimp_user" \
+    "YiiMPPanelName"
+
+    # YiiMP database password (user-created in aaPanel)
+    input_box "YiiMP Database Password" \
+    "Enter the password for the YiiMP database user.\n\nThis is the password you set when creating the database user in aaPanel.\n\nDatabase Password:" \
+    "" \
+    "PanelUserDBPassword"
+
+    # For single-server aaPanel, stratum uses same database
+    StratumDBUser="${YiiMPPanelName}"
+    StratumUserDBPassword="${PanelUserDBPassword}"
+
+    print_success "aaPanel database configuration completed"
+else
+    # Standard installation or multi-server setup - generate passwords
+    generate_random_password_database "${DEFAULT_DBRootPassword}" "DBRootPassword"
+    generate_random_password_database "${DEFAULT_PanelUserDBPassword}" "PanelUserDBPassword"
+    generate_random_password_database "${DEFAULT_StratumUserDBPassword}" "StratumUserDBPassword"
+
+    # Generate unique names for YiiMP DB and users for increased security
+    YiiMPDBName=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 13)
+    YiiMPPanelName=Panel$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 13)
+    StratumDBUser=Stratum$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 13)
+fi
 
 # Generate YiiMP admin credentials
 generate_yiimp_admin_user "${DEFAULT_AdminUser}" "AdminUser"
@@ -468,10 +543,7 @@ generate_random_password_phpmyadmin "${DEFAULT_PHPMyAdminPassword}" "PHPMyAdminP
 # Generate blocknotify password
 generate_random_password_blocknotify "${DEFAULT_BlocknotifyPassword}" "BlocknotifyPassword"
 
-# Generate unique names for YiiMP DB and users for increased security
-YiiMPDBName=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 13)
-YiiMPPanelName=Panel$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 13)
-StratumDBUser=Stratum$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 13)
+# Database names and users are now handled in the password generation section above
 
 clear
 

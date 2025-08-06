@@ -9,10 +9,19 @@ source /etc/yiimpool.conf
 source $STORAGE_ROOT/yiimp/.yiimp.conf
 source $HOME/Yiimpoolv1/yiimp_single/.wireguard.install.cnf
 
+# Determine the correct web directory path
+if [[ "${USE_AAPANEL}" == "yes" ]]; then
+    WEB_DIR="${AAPANEL_SITE_ROOT}"
+    print_info "Using aaPanel web directory: ${AAPANEL_SITE_ROOT}"
+else
+    WEB_DIR="${STORAGE_ROOT}/yiimp/site/web"
+    print_info "Using standard web directory: ${STORAGE_ROOT}/yiimp/site/web"
+fi
+
 # Create main.sh
 echo '#!/usr/bin/env bash
 PHP_CLI='"'"''"php -d max_execution_time=120"''"'"'
-DIR='""''"${STORAGE_ROOT}"''""'/yiimp/site/web/
+DIR='""''"${WEB_DIR}"''""'/
 cd ${DIR}
 date
 echo started in ${DIR}
