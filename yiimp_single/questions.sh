@@ -16,6 +16,16 @@ if [[ ("$wireguard" == "true") ]]; then
     source "$STORAGE_ROOT/yiimp/.wireguard.conf"
 fi
 
+# aaPanel Configuration Variables
+WEB_SERVER_TYPE="nginx"  # nginx, apache, openlitespeed
+SKIP_WEB_SERVER_INSTALL="false"
+SKIP_PHP_INSTALL="false"
+SKIP_MYSQL_INSTALL="false"
+USE_AAPANEL="false"
+AAPANEL_SITE_ROOT=""
+PHP_VERSION="8.1"
+DEDICATED_DB_SERVER_IP=""
+
 # Display installation type based on wireguard setting
 if [[ ("$wireguard" == "true") ]]; then
     message_box "Yiimpool Yiimp installer" \
@@ -112,6 +122,90 @@ else
        1) InstallSSL=no;;
        255) echo "[ESC] key pressed.";;
     esac
+fi
+
+# aaPanel Configuration Questions
+dialog --title "Web Server Configuration" \
+--yesno "Are you using aaPanel or do you have a web server already configured?\n\nSelect 'Yes' if you have aaPanel installed or want to skip web server installation.\nSelect 'No' for standard YiiMP installation with nginx." 10 70
+response=$?
+case $response in
+   0) USE_AAPANEL=yes;;
+   1) USE_AAPANEL=no;;
+   255) echo "[ESC] key pressed.";;
+esac
+
+if [[ "$USE_AAPANEL" == "yes" ]]; then
+    # Web Server Type Selection
+    WEB_SERVER_TYPE=$(dialog --stdout --title "Web Server Type" --menu "Select your web server type:" 12 60 3 \
+        "nginx" "Nginx (aaPanel default)" \
+        "openlitespeed" "OpenLiteSpeed" \
+        "apache" "Apache")
+
+    if [ -z "$WEB_SERVER_TYPE" ]; then
+        WEB_SERVER_TYPE="nginx"
+    fi
+
+    # PHP Version Selection
+    PHP_VERSION=$(dialog --stdout --title "PHP Version" --menu "Select your PHP version:" 15 60 6 \
+        "8.1" "PHP 8.1" \
+        "8.2" "PHP 8.2" \
+        "8.3" "PHP 8.3" \
+        "8.4" "PHP 8.4" \
+        "7.4" "PHP 7.4 (Legacy)" \
+        "8.0" "PHP 8.0 (Legacy)")
+
+    if [ -z "$PHP_VERSION" ]; then
+        PHP_VERSION="8.1"
+    fi
+
+    # aaPanel Site Directory
+    if [ -z "${AAPANEL_SITE_ROOT:-}" ]; then
+        DEFAULT_AAPANEL_SITE_ROOT="/www/wwwroot/${DomainName}"
+        input_box "aaPanel Site Directory" \
+        "Enter the full path to your aaPanel site directory.\n\nThis is typically /www/wwwroot/yourdomain.com\n\nSite Directory:" \
+        "${DEFAULT_AAPANEL_SITE_ROOT}" \
+        AAPANEL_SITE_ROOT
+
+        if [ -z "${AAPANEL_SITE_ROOT}" ]; then
+            AAPANEL_SITE_ROOT="${DEFAULT_AAPANEL_SITE_ROOT}"
+        fi
+    fi
+
+    # Skip installations
+    SKIP_WEB_SERVER_INSTALL="true"
+    SKIP_PHP_INSTALL="true"
+
+    # Ask about MySQL installation
+    dialog --title "MySQL Installation" \
+    --yesno "Do you want to skip MySQL installation?\n\nSelect 'Yes' if you're using aaPanel's MySQL or a dedicated database server.\nSelect 'No' to install MySQL locally." 10 70
+    response=$?
+    case $response in
+       0) SKIP_MYSQL_INSTALL="true";;
+       1) SKIP_MYSQL_INSTALL="false";;
+       255) echo "[ESC] key pressed.";;
+    esac
+
+    # If skipping MySQL, ask for dedicated DB server
+    if [[ "$SKIP_MYSQL_INSTALL" == "true" ]]; then
+        if [ -z "${DEDICATED_DB_SERVER_IP:-}" ]; then
+            DEFAULT_DB_IP="localhost"
+            input_box "Database Server IP" \
+            "Enter the IP address of your database server.\n\nUse 'localhost' if using aaPanel's local MySQL.\nUse WireGuard IP if using dedicated database server.\n\nDatabase Server IP:" \
+            "${DEFAULT_DB_IP}" \
+            DEDICATED_DB_SERVER_IP
+
+            if [ -z "${DEDICATED_DB_SERVER_IP}" ]; then
+                DEDICATED_DB_SERVER_IP="localhost"
+            fi
+        fi
+    fi
+else
+    # Standard installation - set defaults
+    WEB_SERVER_TYPE="nginx"
+    PHP_VERSION="8.1"
+    SKIP_WEB_SERVER_INSTALL="false"
+    SKIP_PHP_INSTALL="false"
+    SKIP_MYSQL_INSTALL="false"
 fi
 
 # Further prompts for support email, admin panel location, auto-exchange, dedicated coin ports, and public IP
@@ -312,6 +406,14 @@ case $response in
                   PHPMyAdminUser='${PHPMyAdminUser}'
                   PHPMyAdminPassword='${PHPMyAdminPassword}'
                   BlocknotifyPassword='${BlocknotifyPassword}'
+                  USE_AAPANEL='${USE_AAPANEL}'
+                  WEB_SERVER_TYPE='${WEB_SERVER_TYPE}'
+                  SKIP_WEB_SERVER_INSTALL='${SKIP_WEB_SERVER_INSTALL}'
+                  SKIP_PHP_INSTALL='${SKIP_PHP_INSTALL}'
+                  SKIP_MYSQL_INSTALL='${SKIP_MYSQL_INSTALL}'
+                  AAPANEL_SITE_ROOT='${AAPANEL_SITE_ROOT}'
+                  PHP_VERSION='${PHP_VERSION}'
+                  DEDICATED_DB_SERVER_IP='${DEDICATED_DB_SERVER_IP}'
                   YiiMPRepo='https://github.com/Kudaraidee/yiimp.git'" | sudo -E tee "$STORAGE_ROOT/yiimp/.yiimp.conf" >/dev/null 2>&1
         else
             echo "STORAGE_USER=${STORAGE_USER}
@@ -336,6 +438,14 @@ case $response in
                   PHPMyAdminUser='${PHPMyAdminUser}'
                   PHPMyAdminPassword='${PHPMyAdminPassword}'
                   BlocknotifyPassword='${BlocknotifyPassword}'
+                  USE_AAPANEL='${USE_AAPANEL}'
+                  WEB_SERVER_TYPE='${WEB_SERVER_TYPE}'
+                  SKIP_WEB_SERVER_INSTALL='${SKIP_WEB_SERVER_INSTALL}'
+                  SKIP_PHP_INSTALL='${SKIP_PHP_INSTALL}'
+                  SKIP_MYSQL_INSTALL='${SKIP_MYSQL_INSTALL}'
+                  AAPANEL_SITE_ROOT='${AAPANEL_SITE_ROOT}'
+                  PHP_VERSION='${PHP_VERSION}'
+                  DEDICATED_DB_SERVER_IP='${DEDICATED_DB_SERVER_IP}'
                   YiiMPRepo='https://github.com/Kudaraidee/yiimp.git'" | sudo -E tee "$STORAGE_ROOT/yiimp/.yiimp.conf" >/dev/null 2>&1
         fi
         ;;

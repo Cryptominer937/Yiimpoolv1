@@ -11,6 +11,13 @@ source /etc/yiimpool.conf
 source $STORAGE_ROOT/yiimp/.yiimp.conf
 source $HOME/Yiimpoolv1/yiimp_single/.wireguard.install.cnf
 
+# Set default values if not defined (for backward compatibility)
+USE_AAPANEL=${USE_AAPANEL:-"no"}
+WEB_SERVER_TYPE=${WEB_SERVER_TYPE:-"nginx"}
+SKIP_WEB_SERVER_INSTALL=${SKIP_WEB_SERVER_INSTALL:-"false"}
+AAPANEL_SITE_ROOT=${AAPANEL_SITE_ROOT:-"/var/www/${DomainName}/html"}
+PHP_VERSION=${PHP_VERSION:-"8.1"}
+
 set -eu -o pipefail
 
 function print_error {
@@ -29,41 +36,98 @@ if [[ ("$wireguard" == "true") ]]; then
 fi
 
 print_header "Web File Structure Setup"
-print_status "Creating directory structure..."
 
-cd $STORAGE_ROOT/yiimp/yiimp_setup/yiimp
-sudo cp -r $STORAGE_ROOT/yiimp/yiimp_setup/yiimp/web $STORAGE_ROOT/yiimp/site/
+if [[ "${USE_AAPANEL}" == "yes" ]]; then
+    print_status "Setting up YiiMP for aaPanel (${WEB_SERVER_TYPE})..."
 
-print_status "Installing Yiimp web files..."
+    # Ensure aaPanel site directory exists
+    if [ ! -d "${AAPANEL_SITE_ROOT}" ]; then
+        print_error "aaPanel site directory does not exist: ${AAPANEL_SITE_ROOT}"
+        print_info "Please create the site in aaPanel first or check the path"
+        exit 1
+    fi
+
+    # Copy YiiMP web files to aaPanel site directory
+    print_status "Copying YiiMP files to aaPanel site directory..."
+    cd $STORAGE_ROOT/yiimp/yiimp_setup/yiimp
+    sudo cp -r $STORAGE_ROOT/yiimp/yiimp_setup/yiimp/web/* ${AAPANEL_SITE_ROOT}/
+
+    # Create YiiMP site directory structure for compatibility
+    sudo mkdir -p $STORAGE_ROOT/yiimp/site/
+
+    # Create symlink for easier management
+    sudo ln -sf ${AAPANEL_SITE_ROOT} $STORAGE_ROOT/yiimp/site/web
+
+    print_success "YiiMP files copied to aaPanel site directory"
+else
+    print_status "Setting up YiiMP for standard installation..."
+
+    # Standard YiiMP installation
+    cd $STORAGE_ROOT/yiimp/yiimp_setup/yiimp
+    sudo cp -r $STORAGE_ROOT/yiimp/yiimp_setup/yiimp/web $STORAGE_ROOT/yiimp/site/
+
+    print_status "Creating standard directory structure..."
+    sudo mkdir -p /var/www/${DomainName}/html
+
+    print_success "Standard YiiMP directory structure created"
+fi
+
+print_status "Installing Yiimp binary files..."
 cd $STORAGE_ROOT/yiimp/yiimp_setup/
 sudo cp -r $STORAGE_ROOT/yiimp/yiimp_setup/yiimp/bin/. /bin/
 
 print_status "Creating required directories..."
-sudo mkdir -p /var/www/${DomainName}/html
 sudo mkdir -p /etc/yiimp
 sudo mkdir -p $STORAGE_ROOT/yiimp/site/backup/
 
 print_status "Updating YiiMP configuration..."
 sudo sed -i "s|ROOTDIR=/data/yiimp|ROOTDIR=${STORAGE_ROOT}/yiimp/site|g" /bin/yiimp
 
-print_header "NGINX Configuration"
-if [[ "${UsingSubDomain,,}" == "yes" ]]; then
-    print_status "Configuring subdomain setup..."
-    cd $HOME/Yiimpoolv1/yiimp_single
-    source nginx_subdomain_nonssl.sh
-    if [[ "${InstallSSL,,}" == "yes" ]]; then
-        print_status "Configuring SSL for subdomain..."
-        cd $HOME/Yiimpoolv1/yiimp_single
-        source nginx_subdomain_ssl.sh
-    fi
+print_header "Web Server Configuration"
+
+if [[ "${SKIP_WEB_SERVER_INSTALL}" == "true" ]]; then
+    print_info "Skipping web server configuration - using existing ${WEB_SERVER_TYPE}"
+
+    # Configure based on web server type
+    case "${WEB_SERVER_TYPE}" in
+        "openlitespeed")
+            print_status "Configuring OpenLiteSpeed..."
+            cd $HOME/Yiimpoolv1/yiimp_single
+            source openlitespeed_config.sh
+            ;;
+        "nginx")
+            print_info "Using existing nginx configuration"
+            print_info "Please ensure your nginx configuration includes YiiMP rewrite rules"
+            ;;
+        "apache")
+            print_info "Using existing Apache configuration"
+            print_info "Please ensure your Apache configuration includes YiiMP rewrite rules"
+            ;;
+        *)
+            print_warning "Unknown web server type: ${WEB_SERVER_TYPE}"
+            print_info "Please configure your web server manually for YiiMP"
+            ;;
+    esac
 else
-    print_status "Configuring main domain setup..."
-    cd $HOME/Yiimpoolv1/yiimp_single
-    source nginx_domain_nonssl.sh
-    if [[ "${InstallSSL,,}" == "yes" ]]; then
-        print_status "Configuring SSL for main domain..."
+    print_header "NGINX Configuration"
+    if [[ "${UsingSubDomain,,}" == "yes" ]]; then
+        print_status "Configuring subdomain setup..."
         cd $HOME/Yiimpoolv1/yiimp_single
-        source nginx_domain_ssl.sh
+        source nginx_subdomain_nonssl.sh
+        if [[ "${InstallSSL,,}" == "yes" ]]; then
+            print_status "Configuring SSL for subdomain..."
+            cd $HOME/Yiimpoolv1/yiimp_single
+            source nginx_subdomain_ssl.sh
+        fi
+    else
+        print_status "Configuring main domain setup..."
+        cd $HOME/Yiimpoolv1/yiimp_single
+        source nginx_domain_nonssl.sh
+        if [[ "${InstallSSL,,}" == "yes" ]]; then
+            print_status "Configuring SSL for main domain..."
+            cd $HOME/Yiimpoolv1/yiimp_single
+            source nginx_domain_ssl.sh
+        fi
     fi
 fi
 
@@ -101,18 +165,63 @@ sudo sed -i 's/Notes/AddNodes/g' $STORAGE_ROOT/yiimp/site/web/yaamp/models/db_co
 print_status "Creating configuration symlinks..."
 sudo ln -s ${STORAGE_ROOT}/yiimp/site/configuration/serverconfig.php /etc/yiimp/serverconfig.php
 
+print_status "Updating PHP version references..."
+
+# Update nginx configuration files to use the correct PHP version
+if [[ "${SKIP_WEB_SERVER_INSTALL}" != "true" && "${WEB_SERVER_TYPE}" == "nginx" ]]; then
+    print_status "Updating nginx PHP-FPM socket references..."
+
+    # Update php_fastcgi.conf
+    sudo sed -i "s|php8\.1-fpm\.sock|php${PHP_VERSION}-fpm.sock|g" $HOME/Yiimpoolv1/yiimp_single/nginx_confs/php_fastcgi.conf
+
+    # Update phpmyadmin.conf
+    sudo sed -i "s|php8\.1-fpm\.sock|php${PHP_VERSION}-fpm.sock|g" $HOME/Yiimpoolv1/yiimp_single/nginx_confs/phpmyadmin.conf
+
+    # Update any other nginx configuration files that might have PHP version references
+    find $HOME/Yiimpoolv1/yiimp_single/nginx_confs/ -name "*.conf" -exec sudo sed -i "s|php8\.1-fpm\.sock|php${PHP_VERSION}-fpm.sock|g" {} \;
+    find $HOME/Yiimpoolv1/yiimp_single/nginx_confs/ -name "*.conf" -exec sudo sed -i "s|php7\.2-fpm\.sock|php${PHP_VERSION}-fpm.sock|g" {} \;
+
+    print_success "Nginx PHP version references updated to ${PHP_VERSION}"
+fi
+
 print_status "Updating configuration paths..."
-sudo sed -i "s|${STORAGE_ROOT}/yiimp/site/configuration/serverconfig.php|/etc/yiimp/serverconfig.php|g" $STORAGE_ROOT/yiimp/site/web/index.php
-sudo sed -i "s|${STORAGE_ROOT}/yiimp/site/configuration/serverconfig.php|/etc/yiimp/serverconfig.php|g" $STORAGE_ROOT/yiimp/site/web/runconsole.php
-sudo sed -i "s|${STORAGE_ROOT}/yiimp/site/configuration/serverconfig.php|/etc/yiimp/serverconfig.php|g" $STORAGE_ROOT/yiimp/site/web/run.php
-sudo sed -i "s|${STORAGE_ROOT}/yiimp/site/configuration/serverconfig.php|/etc/yiimp/serverconfig.php|g" $STORAGE_ROOT/yiimp/site/web/yaamp/yiic.php
-sudo sed -i "s|${STORAGE_ROOT}/yiimp/site/configuration/serverconfig.php|/etc/yiimp/serverconfig.php|g" $STORAGE_ROOT/yiimp/site/web/yaamp/modules/thread/CronjobController.php
 
-sudo sed -i "s|require_once('serverconfig.php')|require_once('/etc/yiimp/serverconfig.php')|g" $STORAGE_ROOT/yiimp/site/web/yaamp/yiic.php
+# Determine the correct web root path
+if [[ "${USE_AAPANEL}" == "yes" ]]; then
+    WEB_ROOT_PATH="${AAPANEL_SITE_ROOT}"
+else
+    WEB_ROOT_PATH="$STORAGE_ROOT/yiimp/site/web"
+fi
 
-sudo sed -i "s|/root/backup|${STORAGE_ROOT}/yiimp/site/backup|g" $STORAGE_ROOT/yiimp/site/web/yaamp/core/backend/system.php
-sudo sed -i 's/service $webserver start/sudo service $webserver start/g' $STORAGE_ROOT/yiimp/site/web/yaamp/modules/thread/CronjobController.php
-sudo sed -i 's/service nginx stop/sudo service nginx stop/g' $STORAGE_ROOT/yiimp/site/web/yaamp/modules/thread/CronjobController.php
+# Update configuration paths in YiiMP files
+sudo sed -i "s|${STORAGE_ROOT}/yiimp/site/configuration/serverconfig.php|/etc/yiimp/serverconfig.php|g" ${WEB_ROOT_PATH}/index.php
+sudo sed -i "s|${STORAGE_ROOT}/yiimp/site/configuration/serverconfig.php|/etc/yiimp/serverconfig.php|g" ${WEB_ROOT_PATH}/runconsole.php
+sudo sed -i "s|${STORAGE_ROOT}/yiimp/site/configuration/serverconfig.php|/etc/yiimp/serverconfig.php|g" ${WEB_ROOT_PATH}/run.php
+sudo sed -i "s|${STORAGE_ROOT}/yiimp/site/configuration/serverconfig.php|/etc/yiimp/serverconfig.php|g" ${WEB_ROOT_PATH}/yaamp/yiic.php
+sudo sed -i "s|${STORAGE_ROOT}/yiimp/site/configuration/serverconfig.php|/etc/yiimp/serverconfig.php|g" ${WEB_ROOT_PATH}/yaamp/modules/thread/CronjobController.php
+
+sudo sed -i "s|require_once('serverconfig.php')|require_once('/etc/yiimp/serverconfig.php')|g" ${WEB_ROOT_PATH}/yaamp/yiic.php
+
+sudo sed -i "s|/root/backup|${STORAGE_ROOT}/yiimp/site/backup|g" ${WEB_ROOT_PATH}/yaamp/core/backend/system.php
+
+# Update service management commands based on web server type
+case "${WEB_SERVER_TYPE}" in
+    "openlitespeed")
+        sudo sed -i 's/service $webserver start/sudo systemctl start lsws/g' ${WEB_ROOT_PATH}/yaamp/modules/thread/CronjobController.php
+        sudo sed -i 's/service nginx stop/sudo systemctl stop lsws/g' ${WEB_ROOT_PATH}/yaamp/modules/thread/CronjobController.php
+        sudo sed -i 's/service nginx start/sudo systemctl start lsws/g' ${WEB_ROOT_PATH}/yaamp/modules/thread/CronjobController.php
+        ;;
+    "apache")
+        sudo sed -i 's/service $webserver start/sudo systemctl start apache2/g' ${WEB_ROOT_PATH}/yaamp/modules/thread/CronjobController.php
+        sudo sed -i 's/service nginx stop/sudo systemctl stop apache2/g' ${WEB_ROOT_PATH}/yaamp/modules/thread/CronjobController.php
+        sudo sed -i 's/service nginx start/sudo systemctl start apache2/g' ${WEB_ROOT_PATH}/yaamp/modules/thread/CronjobController.php
+        ;;
+    *)
+        # Default nginx commands
+        sudo sed -i 's/service $webserver start/sudo service nginx start/g' ${WEB_ROOT_PATH}/yaamp/modules/thread/CronjobController.php
+        sudo sed -i 's/service nginx stop/sudo service nginx stop/g' ${WEB_ROOT_PATH}/yaamp/modules/thread/CronjobController.php
+        ;;
+esac
 
 if [[ ("$wireguard" == "true") ]]; then
     print_status "Configuring WireGuard internal network..."
@@ -137,7 +246,14 @@ print_success "YiiMP web configuration completed successfully"
 
 print_header "Configuration Summary"
 print_info "Domain: ${DomainName}"
-print_info "Web Root: /var/www/${DomainName}/html"
+if [[ "${USE_AAPANEL}" == "yes" ]]; then
+    print_info "Web Server: ${WEB_SERVER_TYPE} (via aaPanel)"
+    print_info "Web Root: ${AAPANEL_SITE_ROOT}"
+    print_info "PHP Version: ${PHP_VERSION}"
+else
+    print_info "Web Server: nginx (standard installation)"
+    print_info "Web Root: /var/www/${DomainName}/html"
+fi
 print_info "YiiMP Root: ${STORAGE_ROOT}/yiimp/site"
 print_info "Configuration: /etc/yiimp"
 print_info "Backup Directory: ${STORAGE_ROOT}/yiimp/site/backup"

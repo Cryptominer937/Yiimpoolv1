@@ -333,6 +333,95 @@ function restart_service {
 	hide_output sudo service $1 restart
 }
 
+# Web Server Management Functions for aaPanel Integration
+function restart_webserver {
+    local web_server_type=${WEB_SERVER_TYPE:-"nginx"}
+
+    case "${web_server_type}" in
+        "openlitespeed")
+            print_status "Restarting OpenLiteSpeed..."
+            hide_output sudo systemctl restart lsws
+            ;;
+        "apache")
+            print_status "Restarting Apache..."
+            hide_output sudo systemctl restart apache2
+            ;;
+        "nginx")
+            print_status "Restarting Nginx..."
+            hide_output sudo service nginx restart
+            ;;
+        *)
+            print_warning "Unknown web server type: ${web_server_type}"
+            print_info "Please restart your web server manually"
+            ;;
+    esac
+}
+
+function stop_webserver {
+    local web_server_type=${WEB_SERVER_TYPE:-"nginx"}
+
+    case "${web_server_type}" in
+        "openlitespeed")
+            print_status "Stopping OpenLiteSpeed..."
+            hide_output sudo systemctl stop lsws
+            ;;
+        "apache")
+            print_status "Stopping Apache..."
+            hide_output sudo systemctl stop apache2
+            ;;
+        "nginx")
+            print_status "Stopping Nginx..."
+            hide_output sudo service nginx stop
+            ;;
+        *)
+            print_warning "Unknown web server type: ${web_server_type}"
+            print_info "Please stop your web server manually"
+            ;;
+    esac
+}
+
+function start_webserver {
+    local web_server_type=${WEB_SERVER_TYPE:-"nginx"}
+
+    case "${web_server_type}" in
+        "openlitespeed")
+            print_status "Starting OpenLiteSpeed..."
+            hide_output sudo systemctl start lsws
+            ;;
+        "apache")
+            print_status "Starting Apache..."
+            hide_output sudo systemctl start apache2
+            ;;
+        "nginx")
+            print_status "Starting Nginx..."
+            hide_output sudo service nginx start
+            ;;
+        *)
+            print_warning "Unknown web server type: ${web_server_type}"
+            print_info "Please start your web server manually"
+            ;;
+    esac
+}
+
+function get_webserver_status {
+    local web_server_type=${WEB_SERVER_TYPE:-"nginx"}
+
+    case "${web_server_type}" in
+        "openlitespeed")
+            sudo systemctl is-active lsws
+            ;;
+        "apache")
+            sudo systemctl is-active apache2
+            ;;
+        "nginx")
+            sudo service nginx status
+            ;;
+        *)
+            echo "unknown"
+            ;;
+    esac
+}
+
 ## Dialog Functions ##
 function message_box {
 	dialog --title "$1" --msgbox "$2" 0 0

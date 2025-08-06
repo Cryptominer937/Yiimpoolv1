@@ -85,7 +85,7 @@ print_header "Service Restart"
 print_status "Restarting NGINX..."
 restart_service nginx
 print_status "Restarting PHP-FPM..."
-restart_service php8.1-fpm
+restart_service php${PHP_VERSION:-8.1}-fpm
 
 print_divider
 
